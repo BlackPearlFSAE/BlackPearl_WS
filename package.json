@@ -1,0 +1,16 @@
+{
+  "name": "ws-backend",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "sequelize": "^6.37.0",
+    "pg": "^8.11.3",
+    "pg-hstore": "^2.3.4",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "ws": "^8.16.0"
+  }
+}
