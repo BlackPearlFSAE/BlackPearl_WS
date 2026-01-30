@@ -42,8 +42,12 @@ router.delete('/delete', async (req, res) => {
 
     const deletedCount = await Stat.destroy({
       where: {
-        session_id: Number(session_id),
-        experiment_id: Number(experiment_id)
+        data: {
+          [Op.contains]: {
+            session_id: Number(session_id),
+            experiment_id: Number(experiment_id)
+          }
+        }
       }
     });
 
@@ -56,7 +60,10 @@ router.delete('/delete', async (req, res) => {
     res.json({
       message: 'Successfully deleted records',
       deleted_count: deletedCount,
-      criteria: { session_id, experiment_id }
+      criteria: {
+        session_id: Number(session_id),
+        experiment_id: Number(experiment_id)
+      }
     });
 
   } catch (err) {
