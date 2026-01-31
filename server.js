@@ -31,9 +31,50 @@ const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws) => {
   ws.on("message", async (raw) => {
-    const payload = JSON.parse(raw.toString());
-    await Stat.create({ data: payload });
-    ws.send(JSON.stringify({ status: "ok" }));
+    try {
+      const payload = JSON.parse(raw.toString());
+      
+      // ตรวจสอบโครงสร้างข้อมูลตามรูปแบบใหม่
+      if (payload.type === "data" && payload.group && payload.ts && payload.d) {
+        // บันทึกข้อมูลลงฐานข้อมูลพร้อมกับ metadata
+        await Stat.create({
+          data: {
+            type: payload.type,
+            group: payload.group,
+            timestamp: payload.ts,
+            values: payload.d,
+            receivedAt: new Date().toISOString()
+          }
+        });
+        
+        // ส่งการยืนยันกลับไปยังอุปกรณ์
+        ws.send(JSON.stringify({ 
+          status: "ok", 
+          received: true,
+          ts: Date.now()
+        }));
+      } else if (payload.type === "register") {
+        // รองรับการลงทะเบียนอุปกรณ์
+        ws.send(JSON.stringify({ 
+          status: "registered",
+          client_name: payload.client_name,
+          ts: Date.now()
+        }));
+      } else {
+        ws.send(JSON.stringify({ 
+          status: "error", 
+          message: "Invalid message format",
+          ts: Date.now()
+        }));
+      }
+    } catch (error) {
+      console.error("WebSocket message error:", error);
+      ws.send(JSON.stringify({ 
+        status: "error", 
+        message: error.message,
+        ts: Date.now()
+      }));
+    }
   });
 });
 
