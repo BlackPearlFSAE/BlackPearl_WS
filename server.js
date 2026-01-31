@@ -49,9 +49,11 @@ wss.on("connection", (ws) => {
         
         // ส่งการยืนยันกลับไปยังอุปกรณ์
         ws.send(JSON.stringify({ 
-          status: "ok", 
-          received: true,
-          ts: Date.now()
+          type: "registration_response",
+          status: "accepted",
+          system_time: {
+            timestamp_ms: Date.now()
+          }
         }));
       } else if (payload.type === "register") {
         // รองรับการลงทะเบียนอุปกรณ์ตามรูปแบบใหม่
