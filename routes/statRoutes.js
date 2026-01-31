@@ -75,4 +75,29 @@ router.delete('/delete', async (req, res) => {
   }
 });
 
+/**
+ * DELETE /delete-all
+ * ลบข้อมูลทั้งหมด (เกลี้ยงหมด)
+ */
+router.delete('/delete-all', async (req, res) => {
+  try {
+    const deletedCount = await Stat.destroy({
+      where: {},
+      truncate: false
+    });
+
+    res.json({
+      message: 'Successfully deleted all records',
+      deleted_count: deletedCount
+    });
+
+  } catch (err) {
+    console.error('DELETE /api/stat/delete-all error:', err);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      details: err.message
+    });
+  }
+});
+
 export default router;
