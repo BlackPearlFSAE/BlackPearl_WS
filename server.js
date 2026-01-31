@@ -54,11 +54,19 @@ wss.on("connection", (ws) => {
           ts: Date.now()
         }));
       } else if (payload.type === "register") {
-        // รองรับการลงทะเบียนอุปกรณ์
+        // รองรับการลงทะเบียนอุปกรณ์ตามรูปแบบใหม่
+        // บันทึก schema สำหรับการประมวลผลข้อมูลในภายหลัง
+        if (payload.groups && payload.schema) {
+          console.log(`[REGISTRATION] Client: ${payload.client_name}, Groups: ${payload.groups.map(g => g.group).join(', ')}`);
+        }
+        
+        // ส่งคำตอบ registration_response ตามรูปแบบที่ client คาดหวัง
         ws.send(JSON.stringify({ 
-          status: "registered",
-          client_name: payload.client_name,
-          ts: Date.now()
+          type: "registration_response",
+          status: "accepted",
+          system_time: {
+            timestamp_ms: Date.now()
+          }
         }));
       } else {
         ws.send(JSON.stringify({ 
