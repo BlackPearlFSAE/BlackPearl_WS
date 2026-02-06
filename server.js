@@ -33,7 +33,7 @@ wss.on("connection", (ws) => {
   ws.on("message", async (raw) => {
     try {
       const payload = JSON.parse(raw.toString());
-      
+
       // ตรวจสอบโครงสร้างข้อมูลตามรูปแบบใหม่
       if (payload.type === "data" && payload.group && payload.ts && payload.d) {
         // บันทึกข้อมูลลงฐานข้อมูลพร้อมกับ metadata
@@ -46,9 +46,9 @@ wss.on("connection", (ws) => {
             receivedAt: new Date().toISOString()
           }
         });
-        
+
         // ส่งการยืนยันกลับไปยังอุปกรณ์
-        ws.send(JSON.stringify({ 
+        ws.send(JSON.stringify({
           type: "registration_response",
           status: "accepted",
           system_time: {
@@ -61,9 +61,9 @@ wss.on("connection", (ws) => {
         if (payload.groups && payload.schema) {
           console.log(`[REGISTRATION] Client: ${payload.client_name}, Groups: ${payload.groups.map(g => g.group).join(', ')}`);
         }
-        
+
         // ส่งคำตอบ registration_response ตามรูปแบบที่ client คาดหวัง
-        ws.send(JSON.stringify({ 
+        ws.send(JSON.stringify({
           type: "registration_response",
           status: "accepted",
           system_time: {
@@ -71,16 +71,16 @@ wss.on("connection", (ws) => {
           }
         }));
       } else {
-        ws.send(JSON.stringify({ 
-          status: "error", 
+        ws.send(JSON.stringify({
+          status: "error",
           message: "Invalid message format",
           ts: Date.now()
         }));
       }
     } catch (error) {
       console.error("WebSocket message error:", error);
-      ws.send(JSON.stringify({ 
-        status: "error", 
+      ws.send(JSON.stringify({
+        status: "error",
         message: error.message,
         ts: Date.now()
       }));
