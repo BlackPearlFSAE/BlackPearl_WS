@@ -106,7 +106,7 @@ app.get('/', (req, res) => res.json({ status: 'ok' }));
 
 (async () => {
   await sequelize.authenticate();
-  await sequelize.sync();
+  await sequelize.sync({ alter: true });
 
   // Sync active session on startup
   const activeSessionRecord = await Session.findOne({
