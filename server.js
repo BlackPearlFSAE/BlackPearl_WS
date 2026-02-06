@@ -7,7 +7,10 @@ import http from 'http';
 import { WebSocketServer } from 'ws';
 
 import statRoutes from './routes/statRoutes.js';
+import sessionRoutes from './routes/sessionRoutes.js';
+import { activeSession, setActiveSession } from './routes/sessionRoutes.js';
 import { initStatModel, Stat } from './models/stat_schema.js';
+import { initSessionModel, Session } from './models/session_schema.js';
 
 dotenv.config();
 
@@ -25,6 +28,7 @@ const sequelize = new Sequelize(DATABASE_URL, {
 });
 
 initStatModel(sequelize);
+initSessionModel(sequelize);
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
@@ -33,11 +37,12 @@ wss.on("connection", (ws) => {
   ws.on("message", async (raw) => {
     try {
       const payload = JSON.parse(raw.toString());
-      
+
       // ตรวจสอบโครงสร้างข้อมูลตามรูปแบบใหม่
       if (payload.type === "data" && payload.group && payload.ts && payload.d) {
         // บันทึกข้อมูลลงฐานข้อมูลพร้อมกับ metadata
         await Stat.create({
+          session_id: activeSession?.session_id || null, // Stamp session_id if active
           data: {
             type: payload.type,
             group: payload.group,
@@ -46,6 +51,13 @@ wss.on("connection", (ws) => {
             receivedAt: new Date().toISOString()
           }
         });
+
+        // Increment session data_point_count if active
+        if (activeSession && Session) {
+          await Session.increment('data_point_count', {
+            where: { session_id: activeSession.session_id }
+          });
+        }
         
         // ส่งการยืนยันกลับไปยังอุปกรณ์
         ws.send(JSON.stringify({ 
@@ -89,10 +101,24 @@ wss.on("connection", (ws) => {
 });
 
 app.use('/api/stat', statRoutes);
+app.use('/api/session', sessionRoutes);
 app.get('/', (req, res) => res.json({ status: 'ok' }));
 
 (async () => {
   await sequelize.authenticate();
   await sequelize.sync();
+
+  // Sync active session on startup
+  const activeSessionRecord = await Session.findOne({
+    where: { status: 'recording' }
+  });
+  if (activeSessionRecord) {
+    setActiveSession({
+      session_id: activeSessionRecord.session_id,
+      start_time: activeSessionRecord.start_time
+    });
+    console.log(`[SESSION] Restored active session: ${activeSessionRecord.session_id}`);
+  }
+
   server.listen(PORT, () => console.log("running on", PORT));
 })();
