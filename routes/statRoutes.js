@@ -1,5 +1,4 @@
 import express from 'express';
-import { Op } from 'sequelize';
 import { Stat } from '../models/stat_schema.js';
 
 const router = express.Router();
@@ -23,32 +22,21 @@ router.get('/', async (req, res) => {
 
 /**
  * DELETE /delete
- * ลบข้อมูลตาม session_id และ experiment_id
- * body:
- * {
- *   "session_id": 20,
- *   "experiment_id": 3
- * }
+ * ลบข้อมูลตาม session_name
+ * body: { "session_name": "my session" }
  */
 router.delete('/delete', async (req, res) => {
   try {
-    const { session_id, experiment_id } = req.body;
+    const { session_name } = req.body;
 
-    if (session_id == null || experiment_id == null) {
+    if (session_name == null) {
       return res.status(400).json({
-        error: 'session_id and experiment_id are required'
+        error: 'session_name is required'
       });
     }
 
     const deletedCount = await Stat.destroy({
-      where: {
-        data: {
-          [Op.contains]: {
-            session_id: Number(session_id),
-            experiment_id: Number(experiment_id)
-          }
-        }
-      }
+      where: { session_name }
     });
 
     if (deletedCount === 0) {
@@ -60,14 +48,35 @@ router.delete('/delete', async (req, res) => {
     res.json({
       message: 'Successfully deleted records',
       deleted_count: deletedCount,
-      criteria: {
-        session_id: Number(session_id),
-        experiment_id: Number(experiment_id)
-      }
+      criteria: { session_name }
     });
 
   } catch (err) {
     console.error('DELETE /api/stat/delete error:', err);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      details: err.message
+    });
+  }
+});
+
+/**
+ * DELETE /delete-unnamed
+ * ลบข้อมูลที่ session_name เป็น null (ข้อมูลที่ไม่ได้อยู่ใน session)
+ */
+router.delete('/delete-unnamed', async (req, res) => {
+  try {
+    const deletedCount = await Stat.destroy({
+      where: { session_name: null }
+    });
+
+    res.json({
+      message: 'Successfully deleted unnamed records',
+      deleted_count: deletedCount
+    });
+
+  } catch (err) {
+    console.error('DELETE /api/stat/delete-unnamed error:', err);
     res.status(500).json({
       error: 'Internal Server Error',
       details: err.message

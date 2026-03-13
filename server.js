@@ -42,7 +42,8 @@ wss.on("connection", (ws) => {
       if (payload.type === "data" && payload.group && payload.ts && payload.d) {
         // บันทึกข้อมูลลงฐานข้อมูลพร้อมกับ metadata
         await Stat.create({
-          session_id: activeSession?.session_id || null, // Stamp session_id if active
+          session_id: activeSession?.session_id || null,
+          session_name: activeSession?.name || null,
           data: {
             type: payload.type,
             group: payload.group,
@@ -115,6 +116,7 @@ app.get('/', (req, res) => res.json({ status: 'ok' }));
   if (activeSessionRecord) {
     setActiveSession({
       session_id: activeSessionRecord.session_id,
+      name: activeSessionRecord.name,
       start_time: activeSessionRecord.start_time
     });
     console.log(`[SESSION] Restored active session: ${activeSessionRecord.session_id}`);

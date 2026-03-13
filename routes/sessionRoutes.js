@@ -51,6 +51,7 @@ router.post('/start', async (req, res) => {
     // Set as active session for WebSocket handler
     setActiveSession({
       session_id: newSession.session_id,
+      name: newSession.name,
       start_time: newSession.start_time
     });
 
@@ -131,6 +132,11 @@ router.patch('/:session_id/rename', async (req, res) => {
     }
 
     await session.update({ name });
+
+    // Sync active session name if this is the active session
+    if (activeSession && activeSession.session_id === session_id) {
+      activeSession.name = name;
+    }
 
     res.json({
       session_id: session.session_id,

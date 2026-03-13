@@ -10,6 +10,11 @@ export const initStatModel = (sequelize) => {
       allowNull: true,
       defaultValue: null
     },
+    session_name: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null
+    },
     data: { type: DataTypes.JSONB }
   }, {
     tableName: 'stats',
@@ -17,6 +22,9 @@ export const initStatModel = (sequelize) => {
     indexes: [
       {
         fields: ['session_id']
+      },
+      {
+        fields: ['session_name']
       }
     ]
   });
