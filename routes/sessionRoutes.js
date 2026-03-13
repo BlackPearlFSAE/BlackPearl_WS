@@ -232,6 +232,35 @@ router.get('/:session_id/data', async (req, res) => {
 });
 
 /**
+ * DELETE /delete-all
+ * Delete all sessions and all associated stats
+ */
+router.delete('/delete-all', async (req, res) => {
+  try {
+    // Delete all stats first
+    const deletedStatsCount = await Stat.destroy({
+      where: {},
+      truncate: false
+    });
+
+    // Delete all sessions
+    const deletedSessionCount = await Session.destroy({
+      where: {},
+      truncate: false
+    });
+
+    res.json({
+      message: 'All sessions and associated data deleted successfully',
+      deleted_stats_count: deletedStatsCount,
+      deleted_session_count: deletedSessionCount
+    });
+  } catch (err) {
+    console.error('DELETE /api/session/delete-all error:', err);
+    res.status(500).json({ error: 'Internal Server Error', details: err.message });
+  }
+});
+
+/**
  * DELETE /:session_id
  * Delete session and all associated data
  */
