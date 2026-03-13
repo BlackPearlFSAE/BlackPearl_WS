@@ -238,6 +238,44 @@ router.get('/:session_id/data', async (req, res) => {
 });
 
 /**
+ * DELETE /delete-unnamed
+ * Delete sessions where name is null and their associated stats
+ */
+router.delete('/delete-unnamed', async (req, res) => {
+  try {
+    // Find all unnamed sessions
+    const unnamedSessions = await Session.findAll({
+      where: { name: null },
+      attributes: ['session_id']
+    });
+
+    const sessionIds = unnamedSessions.map(s => s.session_id);
+
+    // Delete stats for those sessions
+    let deletedStatsCount = 0;
+    if (sessionIds.length > 0) {
+      deletedStatsCount = await Stat.destroy({
+        where: { session_id: sessionIds }
+      });
+    }
+
+    // Delete the unnamed sessions
+    const deletedSessionCount = await Session.destroy({
+      where: { name: null }
+    });
+
+    res.json({
+      message: 'Unnamed sessions and associated data deleted successfully',
+      deleted_stats_count: deletedStatsCount,
+      deleted_session_count: deletedSessionCount
+    });
+  } catch (err) {
+    console.error('DELETE /api/session/delete-unnamed error:', err);
+    res.status(500).json({ error: 'Internal Server Error', details: err.message });
+  }
+});
+
+/**
  * DELETE /delete-all
  * Delete all sessions and all associated stats
  */
