@@ -1,4 +1,5 @@
 import express from 'express';
+import { Op } from 'sequelize';
 import { Stat } from '../models/stat_schema.js';
 
 const router = express.Router();
@@ -6,10 +7,17 @@ const router = express.Router();
 /**
  * GET /
  * ดึงข้อมูล stat ทั้งหมด (เรียงล่าสุดก่อน)
+ * Optional query: ?since=ISO_TIMESTAMP — only return records created after this time
  */
 router.get('/', async (req, res) => {
   try {
+    const where = {};
+    if (req.query.since) {
+      where.createdAt = { [Op.gte]: new Date(req.query.since) };
+    }
+
     const stats = await Stat.findAll({
+      where,
       order: [['createdAt', 'DESC']]
     });
 
