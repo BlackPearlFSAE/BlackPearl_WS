@@ -33,55 +33,87 @@ initSessionModel(sequelize);
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-wss.on("connection", (ws) => {
+// Track dashboard (frontend) clients vs device clients
+const dashboardClients = new Set();
+
+// Broadcast telemetry to all connected dashboard clients
+const broadcastToDashboards = (message) => {
+  const data = JSON.stringify(message);
+  for (const client of dashboardClients) {
+    if (client.readyState === 1) { // WebSocket.OPEN
+      client.send(data);
+    }
+  }
+};
+
+wss.on("connection", (ws, req) => {
+  // Dashboard clients connect with ?role=dashboard
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const role = url.searchParams.get('role');
+
+  if (role === 'dashboard') {
+    dashboardClients.add(ws);
+    console.log(`[DASHBOARD] Client connected (${dashboardClients.size} total)`);
+    ws.on("close", () => {
+      dashboardClients.delete(ws);
+      console.log(`[DASHBOARD] Client disconnected (${dashboardClients.size} total)`);
+    });
+    return; // Dashboard clients only receive, they don't send telemetry
+  }
+
+  // Device client (MCU nodes)
   ws.on("message", async (raw) => {
     try {
       const payload = JSON.parse(raw.toString());
 
-      // ตรวจสอบโครงสร้างข้อมูลตามรูปแบบใหม่
       if (payload.type === "data" && payload.group && payload.ts && payload.d) {
-        // บันทึกข้อมูลลงฐานข้อมูลพร้อมกับ metadata
-        await Stat.create({
+        const now = new Date().toISOString();
+
+        // Build the data object (same format frontend expects)
+        const statData = {
+          type: payload.type,
+          group: payload.group,
+          timestamp: payload.ts,
+          values: payload.d,
+          receivedAt: now
+        };
+
+        // Broadcast to all dashboard clients (always, for live view)
+        broadcastToDashboards({
+          id: Date.now(), // temporary ID for live data
           session_id: activeSession?.session_id || null,
           session_name: activeSession?.name || null,
-          data: {
-            type: payload.type,
-            group: payload.group,
-            timestamp: payload.ts,
-            values: payload.d,
-            receivedAt: new Date().toISOString()
-          }
+          data: statData,
+          createdAt: now
         });
 
-        // Increment session data_point_count if active
-        if (activeSession && Session) {
+        // Only write to DB when a session is recording
+        if (activeSession) {
+          await Stat.create({
+            session_id: activeSession.session_id,
+            session_name: activeSession.name,
+            data: statData
+          });
+
           await Session.increment('data_point_count', {
             where: { session_id: activeSession.session_id }
           });
         }
 
-        // ส่งการยืนยันกลับไปยังอุปกรณ์
         ws.send(JSON.stringify({
           type: "registration_response",
           status: "accepted",
-          system_time: {
-            timestamp_ms: Date.now()
-          }
+          system_time: { timestamp_ms: Date.now() }
         }));
       } else if (payload.type === "register") {
-        // รองรับการลงทะเบียนอุปกรณ์ตามรูปแบบใหม่
-        // บันทึก schema สำหรับการประมวลผลข้อมูลในภายหลัง
         if (payload.groups && payload.schema) {
           console.log(`[REGISTRATION] Client: ${payload.client_name}, Groups: ${payload.groups.map(g => g.group).join(', ')}`);
         }
 
-        // ส่งคำตอบ registration_response ตามรูปแบบที่ client คาดหวัง
         ws.send(JSON.stringify({
           type: "registration_response",
           status: "accepted",
-          system_time: {
-            timestamp_ms: Date.now()
-          }
+          system_time: { timestamp_ms: Date.now() }
         }));
       } else {
         ws.send(JSON.stringify({
