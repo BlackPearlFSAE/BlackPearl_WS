@@ -8,12 +8,13 @@ import { WebSocketServer } from 'ws';
 
 import statRoutes from './routes/statRoutes.js';
 import sessionRoutes from './routes/sessionRoutes.js';
-import { activeSession, setActiveSession } from './routes/sessionRoutes.js';
+import { activeSession, setActiveSession, setFlushDbBuffer } from './routes/sessionRoutes.js';
 import { initStatModel, Stat } from './models/stat_schema.js';
 import { initSessionModel, Session } from './models/session_schema.js';
-
+import { normalizeTelemetry } from './utils/dataProcessor.js';
 dotenv.config();
 
+// initial expressjs config
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -27,6 +28,7 @@ const sequelize = new Sequelize(DATABASE_URL, {
   dialectOptions: { ssl: { require: true, rejectUnauthorized: false } }
 });
 
+// init the 
 initStatModel(sequelize);
 initSessionModel(sequelize);
 
@@ -36,7 +38,7 @@ const wss = new WebSocketServer({ server });
 // Track dashboard (frontend) clients vs device clients
 const dashboardClients = new Set();
 
-// Broadcast telemetry to all connected dashboard clients
+// Broadcast pre-normalized telemetry to all connected dashboard clients
 const broadcastToDashboards = (message) => {
   const data = JSON.stringify(message);
   for (const client of dashboardClients) {
@@ -45,6 +47,28 @@ const broadcastToDashboards = (message) => {
     }
   }
 };
+
+// --- Batch DB write buffer ---
+let dbWriteBuffer = [];
+const DB_FLUSH_INTERVAL_MS = 1000;
+
+const flushDbBuffer = async () => {
+  if (dbWriteBuffer.length === 0) return;
+  const batch = dbWriteBuffer.splice(0);
+  const sessionId = batch[0].session_id;
+  try {
+    await Stat.bulkCreate(batch);
+    await Session.increment('data_point_count', {
+      by: batch.length,
+      where: { session_id: sessionId }
+    });
+  } catch (err) {
+    console.error('[DB] Batch write error:', err.message);
+  }
+};
+
+setInterval(flushDbBuffer, DB_FLUSH_INTERVAL_MS);
+setFlushDbBuffer(flushDbBuffer);
 
 wss.on("connection", (ws, req) => {
   // Dashboard clients connect with ?role=dashboard
@@ -68,8 +92,11 @@ wss.on("connection", (ws, req) => {
 
       if (payload.type === "data" && payload.group && payload.ts && payload.d) {
         const now = new Date().toISOString();
+        const msgId = Date.now();
+        const sessionId = activeSession?.session_id || null;
+        const sessionName = activeSession?.name || null;
 
-        // Build the data object (same format frontend expects)
+        // Build raw data object (stored in DB as-is)
         const statData = {
           type: payload.type,
           group: payload.group,
@@ -78,25 +105,16 @@ wss.on("connection", (ws, req) => {
           receivedAt: now
         };
 
-        // Broadcast to all dashboard clients (always, for live view)
-        broadcastToDashboards({
-          id: Date.now(), // temporary ID for live data
-          session_id: activeSession?.session_id || null,
-          session_name: activeSession?.name || null,
-          data: statData,
-          createdAt: now
-        });
+        // Pre-normalize for dashboard (frontend skips normalizeData for live)
+        const normalized = normalizeTelemetry(statData, msgId, sessionId, sessionName, now);
+        broadcastToDashboards(normalized);
 
-        // Only write to DB when a session is recording
+        // Only buffer to DB when a session is recording
         if (activeSession) {
-          await Stat.create({
+          dbWriteBuffer.push({
             session_id: activeSession.session_id,
             session_name: activeSession.name,
             data: statData
-          });
-
-          await Session.increment('data_point_count', {
-            where: { session_id: activeSession.session_id }
           });
         }
 

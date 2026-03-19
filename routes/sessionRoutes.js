@@ -13,6 +13,10 @@ export const setActiveSession = (session) => {
   activeSession = session;
 };
 
+// Injected flush function from server.js (called on stop to flush DB buffer)
+let _flushDbBuffer = null;
+export const setFlushDbBuffer = (fn) => { _flushDbBuffer = fn; };
+
 /**
  * POST /start
  * Start a new recording session
@@ -94,6 +98,9 @@ router.post('/stop', async (req, res) => {
       status: 'stopped',
       end_time
     });
+
+    // Flush any buffered DB writes before clearing session
+    if (_flushDbBuffer) await _flushDbBuffer();
 
     // Clear active session
     setActiveSession(null);
