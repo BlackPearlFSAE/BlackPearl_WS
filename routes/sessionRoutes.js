@@ -3,6 +3,7 @@ import { Op } from 'sequelize';
 import { Session } from '../models/session_schema.js';
 import { Stat } from '../models/stat_schema.js';
 import { v4 as uuidv4 } from 'uuid';
+import { normalizeStatRecord } from '../utils/dataProcessor.js';
 
 const router = express.Router();
 
@@ -230,6 +231,8 @@ router.get('/:session_id/data', async (req, res) => {
     const limit = parseInt(req.query.limit) || 1000;
     const offset = parseInt(req.query.offset) || 0;
 
+    const normalize = req.query.normalized === 'true';
+
     const stats = await Stat.findAll({
       where: { session_id },
       order: [['createdAt', 'ASC']],
@@ -237,7 +240,7 @@ router.get('/:session_id/data', async (req, res) => {
       offset
     });
 
-    res.json(stats);
+    res.json(normalize ? stats.map(s => normalizeStatRecord(s.toJSON())) : stats);
   } catch (err) {
     console.error('GET /api/session/:session_id/data error:', err);
     res.status(500).json({ error: 'Internal Server Error', details: err.message });

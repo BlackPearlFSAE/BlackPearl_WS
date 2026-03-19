@@ -40,7 +40,7 @@ const flattenObject = (obj, prefix = "", res = {}) => {
     return res;
 };
 
-// Normalize a raw telemetry message into the flat format the frontend expects
+// Normalize a raw telemetry message into the flat format the frontend expects (live WS path)
 export const normalizeTelemetry = (statData, id, sessionId, sessionName, createdAt) => {
     const payload = statData.values || {};
     const flatPayload = flattenObject(payload);
@@ -52,6 +52,46 @@ export const normalizeTelemetry = (statData, id, sessionId, sessionName, created
         timestamp: statData.timestamp,
         createdAt,
         group: statData.group,
+        ...flatPayload
+    };
+};
+
+// Sanitize timestamp — if session-relative or missing, fall back to createdAt
+const sanitizeTimestamp = (raw, createdAt) => {
+    if (raw && raw > 1e12) return raw;
+    return new Date(createdAt).getTime();
+};
+
+// Normalize a full DB Stat record (history playback path)
+export const normalizeStatRecord = (item) => {
+    const d = item.data;
+
+    if (d?.type === 'data' && d?.group) {
+        const payload = d.values || d.d || {};
+        const flatPayload = flattenObject(payload);
+        return {
+            id: item.id,
+            session_id: item.session_id,
+            session_name: item.session_name,
+            timestamp: sanitizeTimestamp(d.timestamp, item.createdAt),
+            createdAt: item.createdAt,
+            group: d.group,
+            ...flatPayload
+        };
+    }
+
+    // Legacy topic-based format
+    const rawTs = d?.data?.timestamp ?? d?.timestamp;
+    const payload = d?.data ?? {};
+    const flatPayload = flattenObject(payload);
+    return {
+        id: item.id,
+        session_id: d?.session_id,
+        experiment_id: d?.experiment_id,
+        topic_name: d?.topic_name || d?.topic,
+        timestamp: sanitizeTimestamp(rawTs, item.createdAt),
+        createdAt: item.createdAt,
+        original: item,
         ...flatPayload
     };
 };

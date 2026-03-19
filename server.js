@@ -15,8 +15,14 @@ import { normalizeTelemetry } from './utils/dataProcessor.js';
 dotenv.config();
 
 // initial expressjs config
+// cors
 const app = express();
-app.use(cors());
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.FRONTEND_DEPLOY_URL,
+].filter(Boolean);
+app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : true }));
+// app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
@@ -172,5 +178,5 @@ app.get('/', (req, res) => res.json({ status: 'ok' }));
     console.log(`[SESSION] Restored active session: ${activeSessionRecord.session_id}`);
   }
 
-  server.listen(PORT, () => console.log("running on", PORT));
+  server.listen(PORT, () => console.log(`running on http://localhost:${PORT}`));
 })();
