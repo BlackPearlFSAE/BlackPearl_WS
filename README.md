@@ -1,7 +1,6 @@
-# BlackPearl WS — Backend ↔ Frontend API Bridge
+# BlackPearl Dashboard (BP16B) — Backend
 
 ## Architecture Overview
-
 ```
 Vehicle MCU
     │  WebSocket (device)
@@ -25,6 +24,8 @@ BlackPearl_WS (Node.js)
 **Frontend receives:** ready to render, no processing needed
 
 ### Payload shape (broadcast to dashboard clients)
+
+Example BMS Module message
 ```json
 {
   "id": 1710000000000,
@@ -62,7 +63,10 @@ Base URL:
 - **Dev:** relative (proxied by Vite)
 - **Prod:** `https://blackpearl-ws-8z9a.onrender.com`
 
-### Session
+### Session management
+
+The main philosophy
+
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
 | POST | `/api/session/start` | Begin recording — sets `activeSession` in-memory |
@@ -116,7 +120,7 @@ SCALE_CONFIG:
 
 ## 5. Local Development — Skip Deployment
 
-Set `VITE_BACKEND=local` to proxy everything to `localhost:3000` instead of the
+Set `VITE_BACKEND=local` to proxy everything to `localhost:3000` (`localhost:443`)instead of the
 production Render instance.
 
 ### `.env.local` (create in `BP_dashboard_FE/`)

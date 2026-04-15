@@ -9,13 +9,16 @@ const router = express.Router();
 
 // Global variable to track active session (shared with WebSocket handler)
 export let activeSession = null;
-
 export const setActiveSession = (session) => {
   activeSession = session;
 };
 
-// Injected flush function from server.js (called on stop to flush DB buffer)
+
 let _flushDbBuffer = null;
+/**
+ * Injected flush function from server.js (called on stop to flush DB buffer)
+ * @param {function} fn - function pointer.
+ */
 export const setFlushDbBuffer = (fn) => { _flushDbBuffer = fn; };
 
 /**
@@ -26,7 +29,8 @@ router.post('/start', async (req, res) => {
   try {
     const { name } = req.body;
 
-    // Check if there's already an active session
+    // Check if there's already an active session from other client
+    // (Allows only one client to record at a time)
     const existingActive = await Session.findOne({
       where: { status: 'recording' }
     });
@@ -72,6 +76,9 @@ router.post('/start', async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error', details: err.message });
   }
 });
+
+// ------------------------- 
+// Route
 
 /**
  * POST /stop

@@ -14,28 +14,31 @@ import { initSessionModel, Session } from './models/session_schema.js';
 import { normalizeTelemetry } from './utils/dataProcessor.js';
 dotenv.config();
 
-// initial expressjs config
-// cors
+// initial expressjs config , app , cors allowable origin objects
 const app = express();
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.FRONTEND_DEPLOY_URL,
 ].filter(Boolean);
 app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : true }));
-// app.use(cors());
+// app.use(cors()); // allow all
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL;
+const PUBLISH_INTERVAL = parseInt(process.env.PUBLISH_INTERVAL) || 200;
 
+// Init PostgresSQL DB schema defined in ./models/state_schema.js
 const sequelize = new Sequelize(DATABASE_URL, {
   dialect: 'postgres',
   logging: false,
   dialectOptions: { ssl: { require: true, rejectUnauthorized: false } }
 });
 
-// init the 
+// Init table for recording Telemetry data (Each Marked with session ID)
 initStatModel(sequelize);
+
+// Init table for recording session history
 initSessionModel(sequelize);
 
 const server = http.createServer(app);
@@ -45,18 +48,21 @@ const wss = new WebSocketServer({ server });
 const dashboardClients = new Set();
 
 // Broadcast pre-normalized telemetry to all connected dashboard clients
+// Global PUBLISH_INTERVAL (from .env) — messages are dropped if sent too soon
 const broadcastToDashboards = (message) => {
   const data = JSON.stringify(message);
+  const now = Date.now();
   for (const client of dashboardClients) {
-    if (client.readyState === 1) { // WebSocket.OPEN
-      client.send(data);
-    }
+    if (client.readyState !== 1) continue; // WebSocket.OPEN
+    if (now - client._lastSent < PUBLISH_INTERVAL) continue; // throttle
+    client._lastSent = now;
+    client.send(data);
   }
 };
 
-// --- Batch DB write buffer ---
+// --- Batch DB write buffer if record button pressed ---
 let dbWriteBuffer = [];
-const DB_FLUSH_INTERVAL_MS = 1000;
+const DB_FLUSH_INTERVAL_MS = 1000; // set the batch write interval to 1s
 
 const flushDbBuffer = async () => {
   if (dbWriteBuffer.length === 0) return;
@@ -73,22 +79,35 @@ const flushDbBuffer = async () => {
   }
 };
 
+// Set flush interval
 setInterval(flushDbBuffer, DB_FLUSH_INTERVAL_MS);
 setFlushDbBuffer(flushDbBuffer);
 
+
+// --- Connection Handling ---
 wss.on("connection", (ws, req) => {
   // Dashboard clients connect with ?role=dashboard
   const url = new URL(req.url, `http://${req.headers.host}`);
   const role = url.searchParams.get('role');
 
   if (role === 'dashboard') {
+    ws._lastSent = 0;
     dashboardClients.add(ws);
-    console.log(`[DASHBOARD] Client connected (${dashboardClients.size} total)`);
+    console.log(`[DASHBOARD] Client connected (${dashboardClients.size} total), publish rate: ${PUBLISH_INTERVAL}ms`);
+
+    // TODO: scaffold for future auth-gated publish rate override
+    // ws.on('message', (raw) => {
+    //   const msg = JSON.parse(raw.toString());
+    //   if (msg.type === 'set_publish_interval' && isAuthenticated(ws, 'dev')) {
+    //     // Update global or per-client rate from DB
+    //   }
+    // });
+
     ws.on("close", () => {
       dashboardClients.delete(ws);
       console.log(`[DASHBOARD] Client disconnected (${dashboardClients.size} total)`);
     });
-    return; // Dashboard clients only receive, they don't send telemetry
+    return;
   }
 
   // Device client (MCU nodes)
@@ -157,6 +176,7 @@ wss.on("connection", (ws, req) => {
   });
 });
 
+// Route to /api/stat to poll for 
 app.use('/api/stat', statRoutes);
 app.use('/api/session', sessionRoutes);
 app.get('/', (req, res) => res.json({ status: 'ok' }));

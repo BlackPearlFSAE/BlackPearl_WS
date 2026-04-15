@@ -6,7 +6,7 @@ const router = express.Router();
 
 /**
  * GET /
- * ดึงข้อมูล stat ทั้งหมด (เรียงล่าสุดก่อน)
+ * Poll stat (DESC order)
  * Optional query: ?since=ISO_TIMESTAMP — only return records created after this time
  */
 router.get('/', async (req, res) => {

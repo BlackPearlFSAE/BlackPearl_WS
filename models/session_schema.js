@@ -1,7 +1,12 @@
-import { DataTypes } from 'sequelize';
+import { DataTypes, Sequelize } from 'sequelize';
 
 let Session;
 
+/**
+ * initSession Model.
+ * @constructor
+ * @param {Sequelize} sequelize - The title of the book.
+ */
 export const initSessionModel = (sequelize) => {
   Session = sequelize.define('Session', {
     id: {
