@@ -14,7 +14,7 @@ import { initSessionModel, Session } from './models/session_schema.js';
 import { normalizeTelemetry } from './utils/dataProcessor.js';
 dotenv.config();
 
-// initial expressjs config , app , cors allowable origin objects
+// Initial expressjs config , app , cors allowable origin objects
 const app = express();
 const allowedOrigins = [
   process.env.FRONTEND_URL,
@@ -32,7 +32,8 @@ const PUBLISH_INTERVAL = parseInt(process.env.PUBLISH_INTERVAL) || 200;
 const sequelize = new Sequelize(DATABASE_URL, {
   dialect: 'postgres',
   logging: false,
-  dialectOptions: { ssl: { require: true, rejectUnauthorized: false } }
+  dialectOptions: { ssl: { require: true, rejectUnauthorized: false } },
+  pool: { max: 10, min: 2, acquire: 30000, idle: 10000 }
 });
 
 // Init table for recording Telemetry data (Each Marked with session ID)
@@ -47,41 +48,81 @@ const wss = new WebSocketServer({ server });
 // Track dashboard (frontend) clients vs device clients
 const dashboardClients = new Set();
 
+// Track per-publisher sequence numbers to detect gaps from dropped packets.
+// Key: `${client_id || ip}::${group}` — one counter per publisher+group stream.
+const lastSeqByStream = new Map();
+
 // Broadcast pre-normalized telemetry to all connected dashboard clients
 // Global PUBLISH_INTERVAL (from .env) — messages are dropped if sent too soon
+const WS_BACKPRESSURE_LIMIT = 1024 * 64; // 64KB — drop frames if client can't keep up
 const broadcastToDashboards = (message) => {
   const data = JSON.stringify(message);
   const now = Date.now();
+  const group = message.group || '_default';
   for (const client of dashboardClients) {
-    if (client.readyState !== 1) continue; // WebSocket.OPEN
-    if (now - client._lastSent < PUBLISH_INTERVAL) continue; // throttle
-    client._lastSent = now;
+    if (client.readyState !== 1) continue;
+    if (now - (client._lastSentPerGroup[group] || 0) < PUBLISH_INTERVAL) continue;
+    // Backpressure: skip client if its send buffer is backed up
+    if (client.bufferedAmount > WS_BACKPRESSURE_LIMIT) {
+      client._droppedFrames = (client._droppedFrames || 0) + 1;
+      continue;
+    }
+    client._lastSentPerGroup[group] = now;
     client.send(data);
   }
 };
 
 // --- Batch DB write buffer if record button pressed ---
 let dbWriteBuffer = [];
-const DB_FLUSH_INTERVAL_MS = 1000; // set the batch write interval to 1s
+const DB_FLUSH_INTERVAL_MS = 1000;
+let flushInProgress = false;
 
 const flushDbBuffer = async () => {
   if (dbWriteBuffer.length === 0) return;
+
+  // Guard: skip if previous flush hasn't finished (prevents pool exhaustion)
+  if (flushInProgress) {
+    console.warn(`[DB] Flush skipped — previous write still in progress (${dbWriteBuffer.length} buffered)`);
+    return;
+  }
+
+  flushInProgress = true;
   const batch = dbWriteBuffer.splice(0);
   const sessionId = batch[0].session_id;
   try {
-    await Stat.bulkCreate(batch);
-    await Session.increment('data_point_count', {
-      by: batch.length,
-      where: { session_id: sessionId }
-    });
+    // Run insert and counter update in parallel — one round-trip instead of two
+    await Promise.all([
+      Stat.bulkCreate(batch),
+      Session.increment('data_point_count', {
+        by: batch.length,
+        where: { session_id: sessionId }
+      })
+    ]);
   } catch (err) {
-    console.error('[DB] Batch write error:', err.message);
+    console.error(`[DB] Batch write error (${batch.length} rows lost):`, err.message);
+  } finally {
+    flushInProgress = false;
   }
 };
 
 // Set flush interval
 setInterval(flushDbBuffer, DB_FLUSH_INTERVAL_MS);
 setFlushDbBuffer(flushDbBuffer);
+
+// Heartbeat: ping dashboard clients every 30s, terminate if no pong
+const HEARTBEAT_INTERVAL_MS = 30_000;
+setInterval(() => {
+  for (const client of dashboardClients) {
+    if (!client.isAlive) {
+      console.log(`[DASHBOARD] Dead client evicted (no pong). Dropped frames: ${client._droppedFrames || 0}`);
+      dashboardClients.delete(client);
+      client.terminate();
+      continue;
+    }
+    client.isAlive = false;
+    client.ping();
+  }
+}, HEARTBEAT_INTERVAL_MS);
 
 
 // --- Connection Handling ---
@@ -91,7 +132,8 @@ wss.on("connection", (ws, req) => {
   const role = url.searchParams.get('role');
 
   if (role === 'dashboard') {
-    ws._lastSent = 0;
+    ws._lastSentPerGroup = {};
+    ws._droppedFrames = 0;
     dashboardClients.add(ws);
     console.log(`[DASHBOARD] Client connected (${dashboardClients.size} total), publish rate: ${PUBLISH_INTERVAL}ms`);
 
@@ -103,12 +145,20 @@ wss.on("connection", (ws, req) => {
     //   }
     // });
 
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+
     ws.on("close", () => {
       dashboardClients.delete(ws);
       console.log(`[DASHBOARD] Client disconnected (${dashboardClients.size} total)`);
     });
     return;
   }
+
+  // Identify publisher for per-stream sequence tracking
+  const publisherId = req.headers['x-client-id']
+    || req.socket.remoteAddress
+    || 'unknown';
 
   // Device client (MCU nodes)
   ws.on("message", async (raw) => {
@@ -121,11 +171,25 @@ wss.on("connection", (ws, req) => {
         const sessionId = activeSession?.session_id || null;
         const sessionName = activeSession?.name || null;
 
+        // Detect gaps: if seq provided, compare against last seen for this publisher+group.
+        // Missing seq is logged (firmware should upgrade), but message still accepted.
+        let gap = 0;
+        if (typeof payload.seq === 'number') {
+          const streamKey = `${publisherId}::${payload.group}`;
+          const prevSeq = lastSeqByStream.get(streamKey);
+          if (prevSeq !== undefined && payload.seq > prevSeq + 1) {
+            gap = payload.seq - prevSeq - 1;
+            console.warn(`[GAP] ${streamKey} dropped ${gap} msg(s) (seq ${prevSeq} → ${payload.seq})`);
+          }
+          lastSeqByStream.set(streamKey, payload.seq);
+        }
+
         // Build raw data object (stored in DB as-is)
         const statData = {
           type: payload.type,
           group: payload.group,
           timestamp: payload.ts,
+          seq: payload.seq,
           values: payload.d,
           receivedAt: now
         };
@@ -176,9 +240,10 @@ wss.on("connection", (ws, req) => {
   });
 });
 
-// Route to /api/stat to poll for 
+// Route to /api/stat to poll for
 app.use('/api/stat', statRoutes);
 app.use('/api/session', sessionRoutes);
+app.get('/api/config', (req, res) => res.json({ publishInterval: PUBLISH_INTERVAL }));
 app.get('/', (req, res) => res.json({ status: 'ok' }));
 
 (async () => {

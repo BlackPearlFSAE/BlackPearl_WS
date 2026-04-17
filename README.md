@@ -1,6 +1,19 @@
 # BlackPearl Dashboard (BP16B) — Backend
 
-## Architecture Overview
+Real-time telemetry bridge for the BP16B Formula Student Electric car. Receives sensor data from on-car MCUs over WebSocket, normalizes and scales it server-side, broadcasts to any connected dashboard, and records sessions to PostgreSQL.
+
+<p align="center">
+  <a href="doc/websocket-protocol.md">WebSocket Protocol</a> ·
+  <a href="doc/api-reference.md">REST API</a> ·
+  <a href="doc/data-pipeline.md">Data Pipeline</a> ·
+  <a href="doc/local-development.md">Local Development</a> ·
+  <a href="../BP_dashboard_FE">Frontend repo</a>
+</p>
+
+---
+
+## Architecture
+
 ```
 Vehicle MCU
     │  WebSocket (device)
@@ -16,131 +29,90 @@ BlackPearl_WS (Node.js)
                                         BP_dashboard_FE (history playback)
 ```
 
----
+Backend sends **pre-normalized, pre-scaled flat objects**. The frontend has no scaling logic — live and history data arrive in the same shape.
 
-## 1. Live Data — WebSocket
+## Features
 
-**Backend sends:** pre-normalized, pre-scaled flat object
-**Frontend receives:** ready to render, no processing needed
+| Live streaming | Recording | Storage |
+|---|---|---|
+| [WS broadcast](doc/websocket-protocol.md) of normalized telemetry | [Session lifecycle](doc/api-reference.md#session) (start / stop / rename) | [Batched writes](doc/data-pipeline.md) — 1 s flush interval |
+| Per-client throttle (`PUBLISH_INTERVAL`) | Zero-write mode when no active session | PostgreSQL with JSONB payload |
+| Auto-reconnect handshake | History replay via REST | Pre-normalization on read (`?normalized=true`) |
 
-### Payload shape (broadcast to dashboard clients)
+## Tech Stack
 
-Example BMS Module message
-```json
-{
-  "id": 1710000000000,
-  "session_id": "uuid-or-null",
-  "session_name": "run_01-or-null",
-  "timestamp": 1773465819178,
-  "createdAt": "2026-03-14T05:23:39.225Z",
-  "group": "bmu6.cells",
-  "V_CELL.0": 3.78,
-  "V_CELL.1": 3.76,
-  "TEMP_SENSE.0": -23.0,
-  "V_MODULE": 37.76,
-  "DV": 0.1,
-  "connected": true
-}
+- **Node.js** + **Express 4** — HTTP / REST
+- **ws** — WebSocket server
+- **Sequelize** + **PostgreSQL** — session & stats storage (JSONB)
+- **dotenv** — config
+- `datagen/datagen.py` — synthetic FSAE telemetry generator for local dev
+
+## Project Structure
+```
+BlackPearl_WS/
+├── server.js               # Express + WS entry point, broadcast loop, buffer flush
+├── routes/                 # REST routers (session, stat)
+├── models/                 # Sequelize schemas (Session, Stat)
+├── utils/dataProcessor.js  # Normalize + scale (single source of truth)
+├── datagen/                # Python synthetic-data generator
+└── doc/                    # Deep-dive documentation
 ```
 
-### Frontend connection (`src/utils/websocket.js`)
-```
-Dev:  ws://<host>/ws?role=dashboard   (proxied by Vite → localhost:3000)
-Prod: wss://blackpearl-ws-8z9a.onrender.com/?role=dashboard
-```
-Auto-reconnects every 2s on disconnect.
+## Quick Start
 
-### Frontend render (`src/hooks/useTelemetryStream.js`)
-- Buffers every WS message into a ref (no state update per message)
-- Flushes to React state at **100ms interval (~10fps)**
-- Marks data as **STALE** if no message received for 10s
+Requires Node 18+ and a running PostgreSQL instance.
 
----
-
-## 2. REST API Endpoints
-
-Base URL:
-- **Dev:** relative (proxied by Vite)
-- **Prod:** `https://blackpearl-ws-8z9a.onrender.com`
-
-### Session management
-
-The main philosophy
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| POST | `/api/session/start` | Begin recording — sets `activeSession` in-memory |
-| POST | `/api/session/stop` | Stop recording — flushes DB buffer, clears `activeSession` |
-| GET | `/api/session/active` | Get currently recording session |
-| GET | `/api/session/list` | Paginated session list |
-| GET | `/api/session/:id/data?normalized=true` | History data, pre-normalized by backend |
-| PATCH | `/api/session/:id/rename` | Rename session (syncs activeSession if live) |
-| DELETE | `/api/session/:id` | Delete session + its stats |
-| DELETE | `/api/session/delete-unnamed` | Delete sessions with null name |
-| DELETE | `/api/session/delete-all` | Nuke all sessions + stats |
-
-### Stats
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/stat/` | Fetch all stats (optional `?since=ISO`) |
-| DELETE | `/api/stat/delete` | Delete by session_name (body: `{session_name}`) |
-| DELETE | `/api/stat/delete-unnamed` | Delete stats with null session_name |
-| DELETE | `/api/stat/delete-all` | Delete all stats |
-
-### `?normalized=true` flag
-When set on `/api/session/:id/data`, the backend runs each DB record through
-`normalizeStatRecord()` before responding — same flatten + scale pipeline as
-live WS data. Frontend receives identical shape in both live and history paths.
-
----
-
-## 3. DB Write Strategy
-
-- **No active session:** WS messages broadcast only, zero DB writes
-- **Active session:** messages buffered in memory, flushed via `Stat.bulkCreate()` every **1 second**
-- On session stop: buffer is flushed immediately before clearing `activeSession`
-
----
-
-## 4. Normalization Pipeline (`utils/dataProcessor.js`)
-
-Single source of truth for scaling. Applied server-side for both live and history.
-
-```
-SCALE_CONFIG:
-  V_MODULE, V_CELL  → × 0.02        (raw int → Volts)
-  TEMP_SENSE        → × 0.5 − 40    (raw int → °C)
-  DV                → × 0.1         (raw int → Volts)
+Create .env and type the following
+```ini
+PORT=3000
+DATABASE_URL= <postgresSQL local url>
+DATABASE_DEPLOY_URL= <postgresSQL url>
+FRONTEND_URL= http://localhost:5173
+FRONTEND_DEPLOY_URL= <fronend deployed site url>
+PUBLISH_INTERVAL=200
 ```
 
-`normalizeTelemetry()` — live WS path
-`normalizeStatRecord()` — history REST path
-
----
-
-## 5. Local Development — Skip Deployment
-
-Set `VITE_BACKEND=local` to proxy everything to `localhost:3000` (`localhost:443`)instead of the
-production Render instance.
-
-### `.env.local` (create in `BP_dashboard_FE/`)
-```env
-VITE_BACKEND=local
-```
-
-### Start both servers
+Choose working environment (localhost)
+1. Development 
 ```bash
-# Terminal 1 — backend
-cd BlackPearl_WS
-node server.js
-
-# Terminal 2 — frontend
-cd BP_dashboard_FE
-npm run dev
+npm install
+cp .env.example .env        # then edit DATABASE_URL etc.
+npm run dev                 # Set at port 30
 ```
 
-Vite proxy config (`vite.config.js`) reads `VITE_BACKEND`:
-- `local` → `/api` and `/ws` proxy to `http://localhost:3000`
-- anything else → proxy to `https://blackpearl-ws-8z9a.onrender.com`
+For the full local stack (backend + frontend + synthetic data), see [Local Development](doc/local-development.md).
 
-No code changes needed to switch between local and production.
+## API at a glance
+
+Full reference in [doc/api-reference.md](doc/api-reference.md).
+
+| Group | Typical calls |
+|---|---|
+| `/api/session` | `start`, `stop`, `active`, `list`, `:id/data`, `:id/rename`, `:id` (delete) |
+| `/api/stat`    | `GET /`, `delete`, `delete-unnamed`, `delete-all` |
+| `/ws`          | Device (no role) & dashboard (`?role=dashboard`) endpoints |
+
+---
+
+## Learn More
+
+- [Architecture and API reference](/docs/Arch-and-api.md) - WebSocket stream, API Route,  
+- [How data flow from vehicle to the server](/docs/data-flow.md) -- dataprocessing logic 
+- [Theming](doc) — Tailwind v4 CSS variables and dark mode
+- [Sensor Naming](doc/sensor-naming.md) — raw keys → human-readable labels
+
+
+## Future Work
+
+### Authorized setting (User vs Developer account)
+
+The frontend [SettingsPage](../BP_dashboard_FE/src/pages/SettingsPage.jsx) exposes a "Developer Settings" section for server-side knobs (currently `PUBLISH_INTERVAL`). These are read from `.env` at boot and cannot be changed at runtime.
+
+Planned backend support:
+
+1. **Auth layer** — lightweight middleware (token or session-based) with at least two roles: `user` and `dev`.
+2. **Config endpoints**:
+   - `GET  /api/config` — return live values (`publishInterval`, `dbFlushInterval`, scale configs)
+   - `PATCH /api/config` — update values, dev-role only
+3. **Persistence** — store config in a new `settings` table so changes survive restarts and sync across all connected dashboards. On boot, load DB values and fall back to `.env` defaults.
+4. **Live application** — push config changes into the running broadcast loop without requiring a restart.
