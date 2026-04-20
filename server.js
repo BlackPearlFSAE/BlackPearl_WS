@@ -43,7 +43,7 @@ initStatModel(sequelize);
 initSessionModel(sequelize);
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, path: '/ws' });
 
 // Track dashboard (frontend) clients vs device clients
 const dashboardClients = new Set();

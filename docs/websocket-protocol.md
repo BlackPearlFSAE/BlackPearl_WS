@@ -45,7 +45,7 @@ Arrays are flattened with dotted indices (`V_CELL[0]` → `V_CELL.0`). Scalar se
 ## Connection behavior
 
 - **URL (dev):** `ws://<host>/ws?role=dashboard` (proxied by Vite → `localhost:3000`)
-- **URL (prod):** `wss://blackpearl-ws-8z9a.onrender.com/?role=dashboard`
+- **URL (prod):** `wss://blackpearl-ws-8z9a.onrender.com/ws?role=dashboard`
 - **Reconnect:** frontend auto-reconnects every 2 s on disconnect (`src/utils/websocket.js`)
 - **Throttling:** backend throttles per-client broadcasts at `PUBLISH_INTERVAL` (default 200 ms)
 

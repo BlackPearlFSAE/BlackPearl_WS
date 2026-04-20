@@ -2,24 +2,7 @@
 
 Run the full stack locally without touching the deployed backend.
 
----
-
-## Point frontend at local backend
-
-Create `BP_dashboard_FE/.env.local`:
-
-```env
-VITE_BACKEND=local
-```
-
-`vite.config.js` reads `VITE_BACKEND`:
-
-| Value | `/api` target | `/ws` target |
-|---|---|---|
-| `local` | `http://localhost:3000` | `ws://localhost:3000` |
-| _(anything else)_ | `https://blackpearl-ws-8z9a.onrender.com` | `wss://blackpearl-ws-8z9a.onrender.com` |
-
-No code changes needed to switch between local and production.
+The Vite dev server proxies `/api` and `/ws` to `localhost:3000` by default, so no frontend config is needed — just start the backend on port 3000.
 
 ---
 

@@ -58,7 +58,6 @@ Before:
 }
 After:
 
-
 {
   "type": "data",
   "group": "front.mech",
