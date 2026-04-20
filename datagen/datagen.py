@@ -7,7 +7,7 @@ import math
 from collections import deque
 
 # --- CONFIGURATION ---
-WSS_URL = "ws://localhost:3000"
+WSS_URL = "ws://localhost:3000/ws"
 EVENT_MODE = "ENDURANCE" # Options: "SKIDPAD" or "ENDURANCE"
 PUBLISH_RATE = 5.0
 INTERVAL = 1.0 / PUBLISH_RATE

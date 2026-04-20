@@ -62,29 +62,19 @@ BlackPearl_WS/
 
 Requires Node 18+ and a running PostgreSQL instance.
 
-Create .env and type the following
-```ini
-PORT=3000
-DATABASE_URL= <postgresSQL local url>
-DATABASE_DEPLOY_URL= <postgresSQL url>
-FRONTEND_URL= http://localhost:5173
-FRONTEND_DEPLOY_URL= <fronend deployed site url>
-PUBLISH_INTERVAL=200
-```
-
-Choose working environment (localhost)
-1. Development 
+Development:
+1. Create your own `.env` (copy and modify from `.env.example`)
+2. Type
 ```bash
 npm install
-cp .env.example .env        # then edit DATABASE_URL etc.
-npm run dev                 # Set at port 30
+npm run start   # serves on port 3000
+# OR
+npm run dev     # For real-time change
 ```
-
-For the full local stack (backend + frontend + synthetic data), see [Local Development](doc/local-development.md).
 
 ## API at a glance
 
-Full reference in [doc/api-reference.md](doc/api-reference.md).
+Full reference in [docs/api-reference.md](docs/api-reference.md).
 
 | Group | Typical calls |
 |---|---|

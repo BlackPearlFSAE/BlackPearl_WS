@@ -18,7 +18,6 @@ dotenv.config();
 const app = express();
 const allowedOrigins = [
   process.env.FRONTEND_URL,
-  process.env.FRONTEND_DEPLOY_URL,
 ].filter(Boolean);
 app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : true }));
 // app.use(cors()); // allow all
@@ -32,7 +31,6 @@ const PUBLISH_INTERVAL = parseInt(process.env.PUBLISH_INTERVAL) || 200;
 const sequelize = new Sequelize(DATABASE_URL, {
   dialect: 'postgres',
   logging: false,
-  dialectOptions: { ssl: { require: true, rejectUnauthorized: false } },
   pool: { max: 10, min: 2, acquire: 30000, idle: 10000 }
 });
 
@@ -43,7 +41,7 @@ initStatModel(sequelize);
 initSessionModel(sequelize);
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, path: '/ws' });
 
 // Track dashboard (frontend) clients vs device clients
 const dashboardClients = new Set();
@@ -248,7 +246,8 @@ app.get('/', (req, res) => res.json({ status: 'ok' }));
 
 (async () => {
   await sequelize.authenticate();
-  await sequelize.sync({ alter: true });
+  // await sequelize.sync({ alter: true });
+    // -- uncomment for local dev
 
   // Sync active session on startup
   const activeSessionRecord = await Session.findOne({
