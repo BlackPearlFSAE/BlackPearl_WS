@@ -242,11 +242,11 @@ wss.on("connection", (ws, req) => {
 app.use('/api/stat', statRoutes);
 app.use('/api/session', sessionRoutes);
 app.get('/api/config', (req, res) => res.json({ publishInterval: PUBLISH_INTERVAL }));
-app.get('/', (req, res) => res.json({ status: 'ok' }));
+app.get('/', (req, res) => res.json({ status: 'okkub' }));
 
 (async () => {
   await sequelize.authenticate();
-  // await sequelize.sync({ alter: true });
+  await sequelize.sync({ alter: true });
     // -- uncomment for local dev
 
   // Sync active session on startup
