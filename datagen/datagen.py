@@ -8,7 +8,9 @@ from collections import deque
 
 # --- CONFIGURATION ---
 WSS_URL = "ws://localhost:3000/ws"
-EVENT_MODE = "ENDURANCE" # Options: "SKIDPAD" or "ENDURANCE"
+# WSS_URL = "wss://blackpearl-ws-8z9a.onrender.com/ws?role=dashboard"
+USE_SSL = WSS_URL.startswith("wss://")  # True for remote (wss), False for local (ws)
+EVENT_MODE = "SKIDPAD" # Options: "SKIDPAD" or "ENDURANCE"
 PUBLISH_RATE = 5.0
 INTERVAL = 1.0 / PUBLISH_RATE
 
@@ -140,19 +142,19 @@ def ts_now():
 def generate_front_data():
     ts = ts_now()
     return [
-        {"type": "data", "group": "front.mech", "ts": ts, "d": {
+        {"type": "data", "group": "mech", "node": "front", "ts": ts, "d": {
             "STR_Heave_mm": round(car.heave, 2),
             "STR_Roll_mm": round(car.roll, 2),
         }},
-        {"type": "data", "group": "front.elect", "ts": ts, "d": {
+        {"type": "data", "group": "elect", "node": "front", "ts": ts, "d": {
             "I_SENSE": round(car.current * 0.02, 2),
             "TMP": round(car.inv_temp, 1),
             "APPS": round(max(0, car.long_g * 50), 1),
             "BPPS": round(max(0, -car.long_g * 30), 1),
         }},
-        # Faults are integers: 1 = OK, 0 = fault (FaultBar checks `val === 1`)
-        {"type": "data", "group": "front.faults", "ts": ts, "d": {
-            "AMS_OK": 1, "IMD_OK": 1, "HV_ON": 1, "BSPD_OK": 1,
+        # Faults are booleans: True = OK, False = fault (matches ESP32 output)
+        {"type": "data", "group": "faults", "node": "front", "ts": ts, "d": {
+            "AMS_OK": True, "IMD_OK": True, "HV_ON": True, "BSPD_OK": True,
         }},
     ]
 
@@ -162,13 +164,13 @@ def generate_rear_data():
     ts = ts_now()
     lat, lng = car.gps_lat_lng()
     return [
-        {"type": "data", "group": "rear.mech", "ts": ts, "d": {
+        {"type": "data", "group": "mech", "node": "rear", "ts": ts, "d": {
             "Wheel_RPM_L": round(car.wheel_rpm_l, 1),
             "Wheel_RPM_R": round(car.wheel_rpm_r, 1),
             "STR_Heave_mm": round(car.rear_heave, 2),
             "STR_Roll_mm": round(car.rear_roll, 2),
         }},
-        {"type": "data", "group": "rear.odom", "ts": ts, "d": {
+        {"type": "data", "group": "odom", "node": "rear", "ts": ts, "d": {
             "gps_lat": round(lat, 7),
             "gps_lng": round(lng, 7),
             "gps_age": random.randint(50, 150),
@@ -263,6 +265,7 @@ def connect():
     return websocket.create_connection(
         WSS_URL,
         header=[f"x-client-id: {CLIENT_ID}"],
+        sslopt={"cert_reqs": ssl.CERT_NONE} if USE_SSL else {},
     )
 
 

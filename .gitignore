@@ -5,7 +5,7 @@ node_modules
 .idea
 .DS_Store
 .env
-/datagen/env
+/datagen/.venv
 .cc-history
 .wingman
 .claudeignore

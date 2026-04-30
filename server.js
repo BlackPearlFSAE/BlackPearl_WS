@@ -18,11 +18,10 @@ dotenv.config();
 const app = express();
 const allowedOrigins = [
   process.env.FRONTEND_URL,
-  process.env.FRONTEND_DEPLOY_URL,
 ].filter(Boolean);
 app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : true }));
-// app.use(cors()); // allow all
-app.use(express.json());
+app.use(cors()); // allow all
+// app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -46,7 +45,6 @@ const dbUrl = isRemoteDb && !DATABASE_URL.includes('sslmode=')
 const sequelize = new Sequelize(dbUrl, {
   dialect: 'postgres',
   logging: false,
-  dialectOptions: { ssl: { require: true, rejectUnauthorized: false } },
   pool: { max: 10, min: 2, acquire: 30000, idle: 10000 }
 });
 
@@ -185,11 +183,16 @@ wss.on("connection", (ws, req) => {
         const sessionId = activeSession?.session_id || null;
         const sessionName = activeSession?.name || null;
 
+        // If firmware sends a node field, prepend it to the group: "faults" + node="front" → "front.faults"
+        const resolvedGroup = payload.node
+          ? `${payload.node}.${payload.group}`
+          : payload.group;
+
         // Detect gaps: if seq provided, compare against last seen for this publisher+group.
         // Missing seq is logged (firmware should upgrade), but message still accepted.
         let gap = 0;
         if (typeof payload.seq === 'number') {
-          const streamKey = `${publisherId}::${payload.group}`;
+          const streamKey = `${publisherId}::${resolvedGroup}`;
           const prevSeq = lastSeqByStream.get(streamKey);
           if (prevSeq !== undefined && payload.seq > prevSeq + 1) {
             gap = payload.seq - prevSeq - 1;
@@ -201,7 +204,7 @@ wss.on("connection", (ws, req) => {
         // Build raw data object (stored in DB as-is)
         const statData = {
           type: payload.type,
-          group: payload.group,
+          group: resolvedGroup,
           timestamp: payload.ts,
           seq: payload.seq,
           values: payload.d,
@@ -262,7 +265,8 @@ app.get('/', (req, res) => res.json({ status: 'ok' }));
 
 (async () => {
   await sequelize.authenticate();
-  await sequelize.sync({ alter: true });
+  // await sequelize.sync({ alter: true });
+    // -- uncomment for local dev
 
   // Sync active session on startup
   const activeSessionRecord = await Session.findOne({
