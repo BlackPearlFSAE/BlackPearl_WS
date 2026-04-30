@@ -28,8 +28,22 @@ const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL;
 const PUBLISH_INTERVAL = parseInt(process.env.PUBLISH_INTERVAL) || 200;
 
+// Sequelize sometimes ignores dialectOptions.ssl when given a URL — appending
+// ?sslmode=require makes the pg driver enforce SSL at the driver level.
+// Only applied for remote (non-localhost) databases; local dev skips SSL.
+const isRemoteDb = DATABASE_URL && !DATABASE_URL.includes('localhost') && !DATABASE_URL.includes('127.0.0.1');
+const dbUrl = isRemoteDb && !DATABASE_URL.includes('sslmode=')
+  ? `${DATABASE_URL}?sslmode=require`
+  : DATABASE_URL;
+
 // Init PostgresSQL DB schema defined in ./models/state_schema.js
-const sequelize = new Sequelize(DATABASE_URL, {
+// const sequelize = new Sequelize(DATABASE_URL, {
+//   dialect: 'postgres',
+//   logging: false,
+//   dialectOptions: { ssl: { require: true, rejectUnauthorized: false } },
+//   pool: { max: 10, min: 2, acquire: 30000, idle: 10000 }
+// });
+const sequelize = new Sequelize(dbUrl, {
   dialect: 'postgres',
   logging: false,
   dialectOptions: { ssl: { require: true, rejectUnauthorized: false } },

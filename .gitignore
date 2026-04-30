@@ -8,3 +8,4 @@ node_modules
 /datagen/env
 .cc-history
 .wingman
+.claudeignore
